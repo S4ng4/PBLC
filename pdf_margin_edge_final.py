@@ -142,6 +142,11 @@ def write_margin_edge_final_pdf(summary: InvoiceSummary, dest_pdf_path: str | Pa
         except Exception:
             return "$0.00"
 
+    from xml.sax.saxutils import escape as _xml_escape
+
+    def _p(text: object, style) -> Paragraph:
+        return Paragraph(_xml_escape(str(text or "")), style)
+
     hdr = [
         "Line",
         "PLCB Item Code",
@@ -159,20 +164,20 @@ def write_margin_edge_final_pdf(summary: InvoiceSummary, dest_pdf_path: str | Pa
     for r in _margin_edge_final_rows(summary):
         row: List[object] = []
         # A, B, D, E, F: testo corto, centrato
-        row.append(Paragraph(r[0], style_small_center))
-        row.append(Paragraph(r[1], style_small_center))
+        row.append(_p(r[0], style_small_center))
+        row.append(_p(r[1], style_small_center))
         # C: descrizione con wrap
-        row.append(Paragraph(r[2], style_small))
-        row.append(Paragraph(r[3], style_small_center))
-        row.append(Paragraph(r[4], style_small_center))
-        row.append(Paragraph(r[5], style_small_center))
+        row.append(_p(r[2], style_small))
+        row.append(_p(r[3], style_small_center))
+        row.append(_p(r[4], style_small_center))
+        row.append(_p(r[5], style_small_center))
         # G, H: numeri a 4 decimali, centrati come in Excel
-        row.append(Paragraph(r[6], style_small_center))
-        row.append(Paragraph(r[7], style_small_center))
+        row.append(_p(r[6], style_small_center))
+        row.append(_p(r[7], style_small_center))
         data.append(row)
 
-    # Proporzioni derivate dalle larghezze Excel (A..H): 7,10,14,28,10,10,16,14
-    base = [7, 10, 14, 28, 10, 10, 16, 14]
+    # Proporzioni colonne (A..H): Line, Code, Description, Unit Vol., UOM, Qty, Upcharge, Total
+    base = [7, 11, 28, 12, 8, 9, 16, 14]
     total = float(sum(base))
     col_widths = [usable_w * (b / total) for b in base]
 
@@ -203,14 +208,6 @@ def write_margin_edge_final_pdf(summary: InvoiceSummary, dest_pdf_path: str | Pa
                 ]
             )
 
-        right_pairs = [
-            ("Invoice Number", summary.invoice_number or ""),
-            ("Invoice Date", summary.invoice_date or ""),
-            ("Payment Method", getattr(summary, "payment_method", "") or ""),
-            ("Account Last Four", getattr(summary, "account_last_four", "") or ""),
-            ("Total Units", str(_units_total(summary.items))),
-            ("Total Net Price", _money(summary.total_net_price)),
-        ]
         if summary.invoice_type == "SPECIAL_ORDER":
             right_pairs = [
                 ("Invoice Number", summary.invoice_number or ""),
@@ -245,10 +242,10 @@ def write_margin_edge_final_pdf(summary: InvoiceSummary, dest_pdf_path: str | Pa
         for (l_lab, l_val), (r_lab, r_val) in zip(left_pairs, right_pairs):
             rows.append(
                 [
-                    Paragraph(l_lab, style_label),
-                    Paragraph(str(l_val), style_small),
-                    Paragraph(r_lab, style_label),
-                    Paragraph(str(r_val), style_small),
+                    _p(l_lab, style_label),
+                    _p(l_val, style_small),
+                    _p(r_lab, style_label),
+                    _p(r_val, style_small),
                 ]
             )
 

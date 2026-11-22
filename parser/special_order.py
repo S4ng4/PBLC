@@ -229,9 +229,16 @@ def _parse_header_special(text: str) -> dict[str, str]:
     return out
 
 
-def parse_special_order_invoice(pdf_path: str) -> InvoiceSummary:
-    text = extract_text(pdf_path)
-    tables = extract_tables(pdf_path)
+def parse_special_order_invoice(
+    pdf_path: str,
+    *,
+    text: Optional[str] = None,
+    tables: Optional[List[List[Any]]] = None,
+) -> InvoiceSummary:
+    if text is None:
+        text = extract_text(pdf_path)
+    if tables is None:
+        tables = extract_tables(pdf_path)
     hdr = _parse_header_special(text)
 
     items = _parse_items_from_tables(tables)

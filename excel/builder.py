@@ -197,13 +197,16 @@ def _fill_products_margin_edge(ws, summary: InvoiceSummary, first: int, last: in
 
     ws.cell(row=total_row, column=1, value="Total Units:")
     k_col = 11
-    if summary.invoice_type == "SPECIAL_ORDER":
-        ws.cell(row=total_row, column=k_col, value=f"=SUM(J{first}:J{last})")
+    if last >= first:
+        if summary.invoice_type == "SPECIAL_ORDER":
+            ws.cell(row=total_row, column=k_col, value=f"=SUM(J{first}:J{last})")
+        else:
+            ws.cell(row=total_row, column=k_col, value=f"=SUM(G{first}:G{last})")
+        ws.cell(row=total_row, column=16, value=f"=SUM(P{first}:P{last})")
     else:
-        ws.cell(row=total_row, column=k_col, value=f"=SUM(G{first}:G{last})")
+        ws.cell(row=total_row, column=k_col, value=0)
+        ws.cell(row=total_row, column=16, value=0.0)
     ws.cell(row=total_row, column=k_col).number_format = "0"
-
-    ws.cell(row=total_row, column=16, value=f"=SUM(P{first}:P{last})")
     _apply_dec4(ws.cell(row=total_row, column=16))
 
 
@@ -302,8 +305,8 @@ def _apply_margin_edge_final_plcb_layout(dst, summary: InvoiceSummary) -> None:
     dst.row_dimensions[4].height = 18
 
     dst.column_dimensions["A"].width = 7
-    dst.column_dimensions["B"].width = 10
-    for col, w in (("C", 14), ("D", 28), ("E", 10), ("F", 10), ("G", 16), ("H", 14)):
+    dst.column_dimensions["B"].width = 12
+    for col, w in (("C", 32), ("D", 12), ("E", 8), ("F", 10), ("G", 18), ("H", 14)):
         dst.column_dimensions[col].width = w
 
 

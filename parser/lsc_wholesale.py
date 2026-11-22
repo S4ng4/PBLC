@@ -213,9 +213,17 @@ def _parse_header_lsc(text: str) -> dict[str, str]:
     return out
 
 
-def parse_lsc_wholesale_invoice(pdf_path: str, invoice_type: str) -> InvoiceSummary:
-    text = extract_text(pdf_path)
-    tables = extract_tables(pdf_path)
+def parse_lsc_wholesale_invoice(
+    pdf_path: str,
+    invoice_type: str,
+    *,
+    text: Optional[str] = None,
+    tables: Optional[List[List[Any]]] = None,
+) -> InvoiceSummary:
+    if text is None:
+        text = extract_text(pdf_path)
+    if tables is None:
+        tables = extract_tables(pdf_path)
     hdr = _parse_header_lsc(text)
 
     items = _parse_items_from_tables(tables)

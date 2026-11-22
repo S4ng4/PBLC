@@ -70,6 +70,13 @@ def is_probable_product_start(line: str) -> bool:
     return bool(re.match(r"^\d{1,3}\s+\d{4,10}\b", s))
 
 
+_SUMMARY_STOP_RE = re.compile(
+    r"^(?:total\s+(?:base|gross|net|taxable|units)|subtotal|delivery\s+fee|ltmf\s+fee|"
+    r"licensee\s+discount|taxable\s+amount|sales\s+tax|local\s+tax|base\s+freight|page\s+\d+)",
+    re.IGNORECASE,
+)
+
+
 def merge_wrapped_product_block(lines: List[str], start_idx: int) -> Tuple[List[str], int]:
     """
     From lines[start_idx], consume product rows; join continuation lines that do not
@@ -92,7 +99,7 @@ def merge_wrapped_product_block(lines: List[str], start_idx: int) -> Tuple[List[
             if not nxt:
                 i += 1
                 break
-            if is_probable_product_start(nxt):
+            if is_probable_product_start(nxt) or _SUMMARY_STOP_RE.match(nxt):
                 break
             buf = f"{buf} {nxt}"
             i += 1

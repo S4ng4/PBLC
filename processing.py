@@ -10,7 +10,7 @@ from models import InvoiceSummary, verify_totals
 from parser.detector import detect_invoice_type
 from parser.lsc_wholesale import parse_lsc_wholesale_invoice
 from parser.special_order import parse_special_order_invoice
-from pdf_utils import extract_text
+from pdf_utils import extract_text_and_tables
 
 
 def safe_invoice_filename(inv: str) -> str:
@@ -20,12 +20,12 @@ def safe_invoice_filename(inv: str) -> str:
 
 
 def load_summary(pdf_path: str) -> tuple[InvoiceSummary, str]:
-    raw = extract_text(pdf_path)
+    raw, tables = extract_text_and_tables(pdf_path)
     kind = detect_invoice_type(raw)
     if kind == "SPECIAL_ORDER":
-        summary = parse_special_order_invoice(pdf_path)
+        summary = parse_special_order_invoice(pdf_path, text=raw, tables=tables)
     else:
-        summary = parse_lsc_wholesale_invoice(pdf_path, kind)
+        summary = parse_lsc_wholesale_invoice(pdf_path, kind, text=raw, tables=tables)
     if not summary.invoice_number:
         summary.invoice_number = Path(pdf_path).stem
     return summary, raw

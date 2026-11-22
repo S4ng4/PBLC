@@ -1,0 +1,61 @@
+name: PLCB Email Invoice Worker
+
+on:
+  schedule:
+    # Controlla la casella ogni 15 minuti (funziona anche a computer spento)
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Simulazione (non invia email né sposta messaggi)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: plcb-email-worker
+  cancel-in-progress: false
+
+jobs:
+  process-invoices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements-worker.txt"
+
+      - name: Install headless dependencies
+        run: pip install -r requirements-worker.txt
+
+      - name: Run PLCB email worker
+        env:
+          IMAP_HOST: ${{ vars.IMAP_HOST || 'imap.gmail.com' }}
+          IMAP_PORT: ${{ vars.IMAP_PORT || '993' }}
+          IMAP_USER: ${{ secrets.IMAP_USER }}
+          IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+          IMAP_MAILBOX: ${{ vars.IMAP_MAILBOX || 'INBOX' }}
+          IMAP_PROCESSED_FOLDER: ${{ vars.IMAP_PROCESSED_FOLDER || 'PLCB/Processed' }}
+          IMAP_ERROR_FOLDER: ${{ vars.IMAP_ERROR_FOLDER || 'PLCB/Error' }}
+          IMAP_TO_FILTER: ${{ vars.IMAP_TO_FILTER }}
+          IMAP_ALLOWED_SENDERS: ${{ vars.IMAP_ALLOWED_SENDERS }}
+          IMAP_SUBJECT_CONTAINS: ${{ vars.IMAP_SUBJECT_CONTAINS }}
+          SMTP_HOST: ${{ vars.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ vars.SMTP_FROM }}
+          PDF_ONLY_RECIPIENTS: ${{ secrets.PDF_ONLY_RECIPIENTS }}
+          FULL_RECIPIENTS: ${{ secrets.FULL_RECIPIENTS }}
+          ALERT_RECIPIENTS: ${{ secrets.ALERT_RECIPIENTS }}
+          INCLUDE_ORIGINAL_PDF_IN_FULL: ${{ vars.INCLUDE_ORIGINAL_PDF_IN_FULL || 'true' }}
+          ALERT_ON_UNRECOGNIZED_PDF: ${{ vars.ALERT_ON_UNRECOGNIZED_PDF || 'true' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: python3 email_worker.py --once

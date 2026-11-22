@@ -24,12 +24,63 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from automation.config import load_config, load_dotenv_file, save_dotenv_file
+from automation.worker import run_once
 from excel.builder import build_and_save_excel
 from models import verify_totals
 from pdf_margin_edge_final import write_margin_edge_final_pdf
 from processing import compute_sum_p, load_summary, safe_invoice_filename
 
 _DOWNLOADS: Dict[str, Path] = {}
+_ENV_PATH = ROOT / ".env"
+
+
+def _read_automation_ui_config(env_path: Path = _ENV_PATH) -> dict:
+    raw = load_dotenv_file(env_path, override=False) if env_path.is_file() else {}
+    cfg = load_config(env=raw)
+    return {
+        "ok": True,
+        "env_exists": env_path.is_file(),
+        "imap_user": cfg.imap_user,
+        "has_password": bool(cfg.imap_password),
+        "imap_host": cfg.imap_host,
+        "imap_port": cfg.imap_port,
+        "imap_to_filter": cfg.imap_to_filter,
+        "smtp_host": cfg.smtp_host,
+        "smtp_port": cfg.smtp_port,
+        "pdf_only_recipients": ", ".join(cfg.pdf_only_recipients),
+        "full_recipients": ", ".join(cfg.full_recipients),
+        "alert_recipients": raw.get("ALERT_RECIPIENTS", ", ".join(cfg.alert_recipients)),
+        "include_original_pdf_in_full": cfg.include_original_pdf_in_full,
+        "validation_errors": cfg.validate(),
+    }
+
+
+def _save_automation_ui_config(payload: dict, env_path: Path = _ENV_PATH) -> tuple[int, dict]:
+    existing = load_dotenv_file(env_path, override=False) if env_path.is_file() else {}
+    imap_user = str(payload.get("imap_user", "")).strip()
+    imap_password_in = str(payload.get("imap_password", "")).strip()
+    imap_password = imap_password_in or existing.get("IMAP_PASSWORD", "")
+
+    updates = {
+        "IMAP_HOST": str(payload.get("imap_host") or existing.get("IMAP_HOST") or "imap.gmail.com").strip(),
+        "IMAP_PORT": str(payload.get("imap_port") or existing.get("IMAP_PORT") or "993").strip(),
+        "IMAP_USER": imap_user,
+        "IMAP_PASSWORD": imap_password,
+        "IMAP_TO_FILTER": str(payload.get("imap_to_filter", "")).strip(),
+        "SMTP_HOST": str(payload.get("smtp_host") or existing.get("SMTP_HOST") or "smtp.gmail.com").strip(),
+        "SMTP_PORT": str(payload.get("smtp_port") or existing.get("SMTP_PORT") or "587").strip(),
+        "PDF_ONLY_RECIPIENTS": str(payload.get("pdf_only_recipients", "")).strip(),
+        "FULL_RECIPIENTS": str(payload.get("full_recipients", "")).strip(),
+        "ALERT_RECIPIENTS": str(payload.get("alert_recipients", "")).strip(),
+        "INCLUDE_ORIGINAL_PDF_IN_FULL": (
+            "true" if bool(payload.get("include_original_pdf_in_full", True)) else "false"
+        ),
+    }
+    save_dotenv_file(updates, env_path)
+    load_dotenv_file(env_path, override=True)
+    data = _read_automation_ui_config(env_path)
+    return 200, data
 
 
 def _normalized_request_path(raw_path: str) -> str:
@@ -122,6 +173,50 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
   </div>
   <div class="card" id="out" hidden></div>
+
+  <div class="card" id="autoCard">
+    <h2 style="color:#0f766e;font-size:1.15rem;margin-top:0;">Automazione Email — Destinatari predisposti</h2>
+    <p class="dl-note" style="margin-top:0;">Inserisci la casella che riceve le fatture PLCB e le email a cui inviare automaticamente il PDF generato (e/o l'Excel). Le impostazioni vengono salvate in locale in <code>.env</code>.</p>
+    <form id="autoForm">
+      <div style="display:grid;gap:0.7rem;">
+        <label style="display:block;font-size:0.9rem;">
+          <strong>Casella ricezione fatture (IMAP_USER)</strong><br/>
+          <input id="imap_user" type="email" placeholder="es. fatture.plcb@gmail.com" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:block;font-size:0.9rem;">
+          <strong>App Password Gmail / IMAP (IMAP_PASSWORD)</strong> <span id="pwBadge" style="color:#475569;font-weight:normal;"></span><br/>
+          <input id="imap_password" type="password" placeholder="Password per le app (16 caratteri) — lascia vuoto per mantenere quella salvata" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:block;font-size:0.9rem;">
+          <strong>Filtro alias destinatario opzionale (IMAP_TO_FILTER)</strong><br/>
+          <input id="imap_to_filter" type="text" placeholder="es. tuamail+plcb@gmail.com (lascia vuoto se la casella è dedicata)" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:block;font-size:0.9rem;">
+          <strong>Destinatari SOLO PDF MarginEdgeFinal (es. MarginEdge)</strong><br/>
+          <input id="pdf_only_recipients" type="text" placeholder="es. invoices@marginedge.com (più indirizzi separati da virgola)" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:block;font-size:0.9rem;">
+          <strong>Destinatari PDF + Excel (es. amministrazione / copia personale)</strong><br/>
+          <input id="full_recipients" type="text" placeholder="es. amministrazione@grancaffelaquila.com, mario@esempio.com" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:block;font-size:0.9rem;">
+          <strong>Destinatari ALERT errori / scarti (&gt; $0.01)</strong><br/>
+          <input id="alert_recipients" type="text" placeholder="es. admin@grancaffelaquila.com (se vuoto usa IMAP_USER)" style="width:100%;box-sizing:border-box;padding:0.45rem;border:1px solid #cbd5e1;border-radius:6px;margin-top:0.2rem;"/>
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.9rem;">
+          <input id="include_original_pdf_in_full" type="checkbox" checked/>
+          Allega anche il PDF originale PLCB alle email "PDF + Excel"
+        </label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:1rem;">
+        <button type="submit" class="btn" id="btnSaveAuto">Salva email (.env)</button>
+        <button type="button" class="btn" id="btnDryRunAuto" style="background:#64748b;">Prova (Dry-Run)</button>
+        <button type="button" class="btn" id="btnRunAuto" style="background:#0369a1;">Controlla casella ora</button>
+      </div>
+    </form>
+    <div id="autoOut" hidden style="white-space:pre-wrap;font-size:0.9rem;background:#f8fafc;padding:0.85rem;border-radius:8px;margin-top:0.85rem;"></div>
+  </div>
+
   <script>
   const pdfEl = document.getElementById('pdf');
   const submitBtn = document.getElementById('submitBtn');
@@ -208,6 +303,83 @@ HTML_PAGE = """<!DOCTYPE html>
       submitBtn.disabled = false;
     }
   };
+
+  // --- Automazione Email ---
+  const autoOut = document.getElementById('autoOut');
+  const pwBadge = document.getElementById('pwBadge');
+
+  async function loadAutoConfig() {
+    try {
+      const r = await fetch('/api/automation-config');
+      const j = await r.json();
+      if (!j.ok) return;
+      document.getElementById('imap_user').value = j.imap_user || '';
+      document.getElementById('imap_to_filter').value = j.imap_to_filter || '';
+      document.getElementById('pdf_only_recipients').value = j.pdf_only_recipients || '';
+      document.getElementById('full_recipients').value = j.full_recipients || '';
+      document.getElementById('alert_recipients').value = j.alert_recipients || '';
+      document.getElementById('include_original_pdf_in_full').checked = !!j.include_original_pdf_in_full;
+      pwBadge.textContent = j.has_password ? '(password già salvata)' : '(non ancora impostata)';
+    } catch (_e) {}
+  }
+
+  document.getElementById('autoForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      imap_user: document.getElementById('imap_user').value,
+      imap_password: document.getElementById('imap_password').value,
+      imap_to_filter: document.getElementById('imap_to_filter').value,
+      pdf_only_recipients: document.getElementById('pdf_only_recipients').value,
+      full_recipients: document.getElementById('full_recipients').value,
+      alert_recipients: document.getElementById('alert_recipients').value,
+      include_original_pdf_in_full: document.getElementById('include_original_pdf_in_full').checked,
+    };
+    const r = await fetch('/api/automation-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    document.getElementById('imap_password').value = '';
+    pwBadge.textContent = j.has_password ? '(password già salvata)' : '(non ancora impostata)';
+    autoOut.hidden = false;
+    if (j.validation_errors && j.validation_errors.length) {
+      autoOut.textContent = 'Salvato in .env, ma mancano alcuni dati:\\n- ' + j.validation_errors.join('\\n- ');
+    } else {
+      autoOut.textContent = 'Configurazione email salvata con successo in .env! Ora puoi usare "Prova (Dry-Run)" o "Controlla casella ora".';
+    }
+  };
+
+  async function runAutomation(dryRun) {
+    autoOut.hidden = false;
+    autoOut.textContent = dryRun ? 'Esecuzione Dry-Run in corso…' : 'Controllo casella e invio email in corso…';
+    try {
+      const r = await fetch('/api/automation-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: dryRun }),
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        autoOut.textContent = 'Errore: ' + (j.error || r.status);
+        return;
+      }
+      autoOut.textContent = (dryRun ? '[DRY-RUN] ' : '') +
+        'Completato:\\n' +
+        'Email controllate: ' + j.checked_messages + '\\n' +
+        'Saltate: ' + j.skipped_messages + '\\n' +
+        'Fatture OK: ' + j.invoices_ok + '\\n' +
+        'Discrepanze (> $0.01, bloccate): ' + j.invoices_mismatch + '\\n' +
+        'Errori lettura PDF: ' + j.invoices_error + '\\n' +
+        'Email inviate' + (dryRun ? ' (simulate)' : '') + ': ' + j.emails_sent;
+    } catch (err) {
+      autoOut.textContent = 'Errore: ' + (err && err.message ? err.message : String(err));
+    }
+  }
+
+  document.getElementById('btnDryRunAuto').onclick = () => runAutomation(true);
+  document.getElementById('btnRunAuto').onclick = () => runAutomation(false);
+  loadAutoConfig();
   </script>
 </body>
 </html>
@@ -275,6 +447,9 @@ class Handler(BaseHTTPRequestHandler):
             except OSError:
                 pass
             return
+        if path == "/api/automation-config":
+            self._json(200, _read_automation_ui_config(_ENV_PATH))
+            return
         if path != "/":
             self.send_error(404)
             return
@@ -286,13 +461,58 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_POST(self) -> None:
-        if self.path != "/":
-            self.send_error(404)
-            return
+        req_path = _normalized_request_path(self.path)
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             length = 0
+        if req_path == "/api/automation-config":
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("JSON oggetto richiesto")
+            except Exception as exc:
+                self._json(400, {"ok": False, "error": f"Richiesta non valida: {exc}"})
+                return
+            code, data = _save_automation_ui_config(payload, _ENV_PATH)
+            self._json(code, data)
+            return
+        if req_path == "/api/automation-run":
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(body.decode("utf-8")) if body.strip() else {}
+            except Exception:
+                payload = {}
+            dry_run = bool(payload.get("dry_run", False)) if isinstance(payload, dict) else False
+            try:
+                cfg = load_config(
+                    env_file=_ENV_PATH,
+                    override_env=True,
+                    dry_run_override=dry_run,
+                )
+                rep = run_once(cfg)
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "dry_run": dry_run,
+                        "checked_messages": rep.checked_messages,
+                        "skipped_messages": rep.skipped_messages,
+                        "processed_messages": rep.processed_messages,
+                        "invoices_ok": rep.invoices_ok,
+                        "invoices_mismatch": rep.invoices_mismatch,
+                        "invoices_error": rep.invoices_error,
+                        "emails_sent": rep.emails_sent,
+                        "transient_failures": rep.transient_failures,
+                    },
+                )
+            except Exception as exc:
+                self._json(400, {"ok": False, "error": str(exc)})
+            return
+        if req_path != "/":
+            self.send_error(404)
+            return
         if length <= 0:
             self._json(400, {"ok": False, "error": "Corpo vuoto"})
             return
@@ -377,8 +597,9 @@ def run_web_ui(host: str = "127.0.0.1", port: int = 8765) -> None:
             chosen = p
             break
         except OSError as e:
-            # macOS: Errno 48 = address already in use
-            if getattr(e, "errno", None) == 48:
+            import errno as _errno
+
+            if getattr(e, "errno", None) == _errno.EADDRINUSE:
                 continue
             raise
     if httpd is None or chosen is None:

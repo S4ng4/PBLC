@@ -220,12 +220,14 @@ class App:
             return
         folder = str(p.parent if p.is_file() else p)
         try:
+            import subprocess
+
             if sys.platform == "darwin":
-                os.system(f'open "{folder}"')
+                subprocess.run(["open", folder], check=False)
             elif sys.platform.startswith("win"):
                 os.startfile(folder)  # type: ignore[attr-defined]
             else:
-                os.system(f'xdg-open "{folder}"')
+                subprocess.run(["xdg-open", folder], check=False)
         except OSError as exc:  # pragma: no cover
             messagebox.showwarning("Apri cartella", str(exc))
 
@@ -238,6 +240,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if "--worker" in sys.argv:
+        from email_worker import main as run_worker_cli
+
+        worker_args = [a for a in sys.argv[1:] if a != "--worker"]
+        raise SystemExit(run_worker_cli(worker_args))
     if "--web" in sys.argv:
         from web_ui import run_web_ui
 
