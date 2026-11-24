@@ -197,15 +197,10 @@ def _dispatch_email(
     msg: EmailMessage,
 ) -> None:
     if cfg.dry_run:
-        logger.info(
-            "[DRY-RUN] Invio %s a %s | Oggetto: %s",
-            kind,
-            msg["To"],
-            msg["Subject"],
-        )
+        logger.info("[DRY-RUN] Invio %s preparato (%d allegati).", kind, len(list(msg.iter_attachments())))
         return
     send_fn(cfg, msg)
-    logger.info("Inviata email %s a %s | Oggetto: %s", kind, msg["To"], msg["Subject"])
+    logger.info("Inviata email %s (%d allegati).", kind, len(list(msg.iter_attachments())))
 
 
 def process_email_message(
@@ -230,13 +225,13 @@ def process_email_message(
 
     allowed, reason = should_process_message(msg, cfg)
     if not allowed:
-        logger.info("Saltata email (%s) da %s — %s", subject or "(senza oggetto)", sender, reason)
+        logger.debug("Email saltata: %s", reason)
         rep.skipped_messages = 1
         return "skipped", rep
 
     pdfs = extract_pdf_attachments(msg)
     if not pdfs:
-        logger.info("Saltata email (%s) da %s — nessun allegato PDF", subject or "(senza oggetto)", sender)
+        logger.debug("Email saltata: nessun allegato PDF")
         rep.skipped_messages = 1
         return "skipped", rep
 
@@ -454,12 +449,20 @@ def run_once(
         if status != "OK":
             raise RuntimeError(f"Impossibile aprire la cartella IMAP {cfg.imap_mailbox!r}.")
 
-        status, data = imap.uid("SEARCH", None, "UNSEEN")
+        search_args: list[str] = ["UNSEEN"]
+        if cfg.imap_to_filter:
+            search_args.extend(["TO", _quote_imap_mailbox(cfg.imap_to_filter)])
+        if cfg.imap_subject_contains:
+            search_args.extend(["SUBJECT", _quote_imap_mailbox(cfg.imap_subject_contains)])
+
+        status, data = imap.uid("SEARCH", None, *search_args)
+        if status != "OK" and len(search_args) > 1:
+            status, data = imap.uid("SEARCH", None, "UNSEEN")
         if status != "OK":
             raise RuntimeError("Ricerca IMAP UNSEEN fallita.")
 
         uids = (data[0] or b"").split()
-        logger.info("Trovate %d email non lette in %s.", len(uids), cfg.imap_mailbox)
+        logger.info("Trovate %d email non lette corrispondenti ai filtri in %s.", len(uids), cfg.imap_mailbox)
 
         for uid in uids:
             fetch_status, msg_data = imap.uid("FETCH", uid, "(BODY.PEEK[])")
