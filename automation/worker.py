@@ -436,7 +436,20 @@ def run_once(
     report = RunReport()
     imap = imap_factory(cfg.imap_host, cfg.imap_port)
     try:
-        imap.login(cfg.imap_user, cfg.imap_password)
+        try:
+            imap.login(cfg.imap_user, cfg.imap_password)
+        except imaplib.IMAP4.error as exc:
+            pw = cfg.imap_password or ""
+            is_gmail_app_pw = len(pw) == 16 and pw.isascii() and pw.isalpha() and pw.islower()
+            logger.error(
+                "Login IMAP fallito su %s:%d (formato_app_password_16_lettere=%s, lunghezza=%d): %s",
+                cfg.imap_host,
+                cfg.imap_port,
+                is_gmail_app_pw,
+                len(pw),
+                exc,
+            )
+            raise
         status, _ = imap.select(_quote_imap_mailbox(cfg.imap_mailbox))
         if status != "OK":
             raise RuntimeError(f"Impossibile aprire la cartella IMAP {cfg.imap_mailbox!r}.")

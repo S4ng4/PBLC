@@ -175,6 +175,15 @@ class AutomationConfig:
         return errors
 
 
+def _normalize_password(host: str, password: str) -> str:
+    pw = (password or "").strip()
+    if "gmail" in (host or "").lower():
+        compact = "".join(pw.split())
+        if len(compact) == 16 and compact.isascii() and compact.isalpha():
+            return compact.lower()
+    return pw
+
+
 def load_config(
     env: Optional[Mapping[str, str]] = None,
     *,
@@ -197,10 +206,12 @@ def load_config(
     def get(key: str, default: str = "") -> str:
         return (source.get(key) or default).strip()
 
+    imap_host = get("IMAP_HOST", "imap.gmail.com")
+    smtp_host = get("SMTP_HOST", "smtp.gmail.com")
     imap_user = get("IMAP_USER")
-    imap_password = get("IMAP_PASSWORD")
+    imap_password = _normalize_password(imap_host, get("IMAP_PASSWORD"))
     smtp_user = get("SMTP_USER", imap_user)
-    smtp_password = get("SMTP_PASSWORD", imap_password)
+    smtp_password = _normalize_password(smtp_host, get("SMTP_PASSWORD", imap_password))
     smtp_from = get("SMTP_FROM", smtp_user or imap_user)
 
     alert_recipients = _parse_csv(get("ALERT_RECIPIENTS"))
